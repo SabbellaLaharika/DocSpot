@@ -1,49 +1,96 @@
-const User = require('../schemas/userModel');
-const Doctor = require('../schemas/docModel');
+const doctorModel = require("../schemas/docModel");
+const userModel = require("../schemas/userModel");
 
-const Appointment = require('../schemas/appointmentModel');
-
-// Stubs for admin controllers
-const getAllDoctors = async (req, res) => {
+const getAllUsersController = async (req, res) => {
     try {
-        const doctors = await Doctor.find({}).populate('userID', 'name email');
-        res.json(doctors);
-    } catch (error) {
-        res.status(500).json({ message: error.message });
-    }
-};
-
-const updateDoctorStatus = async (req, res) => {
-    try {
-        const { status } = req.body;
-        const doctor = await Doctor.findByIdAndUpdate(
-            req.params.id,
-            { status },
-            { new: true }
-        );
-        if (!doctor) return res.status(404).json({ message: 'Doctor not found' });
-        res.json(doctor);
-    } catch (error) {
-        res.status(500).json({ message: error.message });
-    }
-};
-
-const getAdminStats = async (req, res) => {
-    try {
-        const totalUsers = await User.countDocuments({ type: 'patient' });
-        const totalDoctors = await Doctor.countDocuments({});
-        const pendingDoctors = await Doctor.countDocuments({ status: 'pending' });
-        const totalAppointments = await Appointment.countDocuments({});
-
-        res.json({
-            users: totalUsers,
-            doctors: totalDoctors,
-            pendingDoctors,
-            appointments: totalAppointments
+        const users = await userModel.find({ isAdmin: false });
+        res.status(200).send({
+            success: true,
+            message: "Users data list",
+            data: users,
         });
     } catch (error) {
-        res.status(500).json({ message: error.message });
+        console.log(error);
+        res.status(500).send({
+            success: false,
+            message: "Error while fetching users",
+            error,
+        });
     }
 };
 
-module.exports = { getAllDoctors, updateDoctorStatus, getAdminStats };
+const getAllDoctorsController = async (req, res) => {
+    try {
+        const doctors = await doctorModel.find({});
+        res.status(200).send({
+            success: true,
+            message: "Doctors data list",
+            data: doctors,
+        });
+    } catch (error) {
+        console.log(error);
+        res.status(500).send({
+            success: false,
+            message: "Error while fetching doctors",
+            error,
+        });
+    }
+};
+
+
+const changeAccountStatusController = async (req, res) => {
+    try {
+        const { doctorId, status } = req.body;
+        const doctor = await doctorModel.findByIdAndUpdate(doctorId, { status });
+        const user = await userModel.findOne({ _id: doctor.userId });
+        const notification = user.notification;
+        notification.push({
+            type: "doctor-account-request-updated",
+            message: `Your Doctor Account Request Has ${status} `,
+            onClickPath: "/notification",
+        });
+
+        // Update user's isDoctor flag based on approval status
+        user.isDoctor = status === "approved" ? true : false;
+
+        await user.save();
+        res.status(201).send({
+            success: true,
+            message: "Account Status Updated",
+            data: doctor,
+        });
+    } catch (error) {
+        console.log(error);
+        res.status(500).send({
+            success: false,
+            message: "Error in Account Status",
+            error,
+        });
+    }
+};
+
+const changeUserStatusController = async (req, res) => {
+    try {
+        const { targetUserId, status } = req.body;
+        const user = await userModel.findByIdAndUpdate(targetUserId, { status }, { new: true });
+        res.status(201).send({
+            success: true,
+            message: `User status has been updated to ${status}`,
+            data: user,
+        });
+    } catch (error) {
+        console.log(error);
+        res.status(500).send({
+            success: false,
+            message: "Error in updating user status",
+            error,
+        });
+    }
+};
+
+module.exports = {
+    getAllUsersController,
+    getAllDoctorsController,
+    changeAccountStatusController,
+    changeUserStatusController,
+};

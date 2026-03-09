@@ -1,28 +1,36 @@
-const express = require('express');
+const express = require("express");
+const authMiddleWare = require("../middlewares/authMiddleWare");
+const {
+    bookAppointmentController,
+    checkAvailabilityController,
+    userAppointmentsController,
+    doctorAppointmentsController,
+    updateStatusController,
+} = require("../controllers/appointmentC");
+
 const router = express.Router();
-const multer = require('multer');
-const path = require('path');
-const { createAppointment, getUserAppointments, getDoctorAppointments, updateAppointmentStatus } = require('../controllers/appointmentC');
 
-// Setup Multer for document uploads
-const storage = multer.diskStorage({
-    destination: (req, file, cb) => {
-        cb(null, 'uploads/');
-    },
-    filename: (req, file, cb) => {
-        cb(null, `${Date.now()}-${file.originalname}`);
-    }
-});
+//BOOK APPOINTMENT
+router.post("/book-appointment", authMiddleWare, bookAppointmentController);
 
-const upload = multer({
-    storage,
-    limits: { fileSize: 5 * 1024 * 1024 } // 5MB limit
-});
+//Booking Avliability
+router.post(
+    "/check-availability",
+    authMiddleWare,
+    checkAvailabilityController
+);
 
-// Appointment Routes
-router.post('/book', upload.single('document'), createAppointment);
-router.get('/user/:userId', getUserAppointments);
-router.get('/doctor/:doctorId', getDoctorAppointments);
-router.put('/status/:id', updateAppointmentStatus);
+//APPOINTMENT LIST
+router.get("/user-appointments", authMiddleWare, userAppointmentsController);
+
+//DOCTOR APPOINTMENT LIST
+router.get(
+    "/doctor-appointments",
+    authMiddleWare,
+    doctorAppointmentsController
+);
+
+//UPDATE STATUS
+router.post("/update-status", authMiddleWare, updateStatusController);
 
 module.exports = router;

@@ -1,110 +1,201 @@
-const User = require('../schemas/userModel');
-const Doctor = require('../schemas/docModel');
-const bcrypt = require('bcryptjs');
-const jwt = require('jsonwebtoken');
+const userModel = require("../schemas/userModel");
+const bcrypt = require("bcryptjs");
+const jwt = require("jsonwebtoken");
+const doctorModel = require("../schemas/docModel");
+const appointmentModel = require("../schemas/appointmentModel");
 
-// Generate JWT Helper
-const generateToken = (id) => {
-    return jwt.sign({ id }, process.env.JWT_SECRET || 'your_secret_key', {
-        expiresIn: '30d',
-    });
-};
-
-const registerUser = async (req, res) => {
+const registerController = async (req, res) => {
     try {
-        const { name, email, password, type, phone, isdoctor, specialization } = req.body;
-
-        // Check if user exists
-        const userExists = await User.findOne({ email });
-        if (userExists) {
-            return res.status(400).json({ message: 'User already exists' });
+        const existingUser = await userModel.findOne({ email: req.body.email });
+        if (existingUser) {
+            return res
+                .status(200)
+                .send({ message: "User already exists", success: false });
         }
-
-        // Hash password
+        const password = req.body.password;
         const salt = await bcrypt.genSalt(10);
         const hashedPassword = await bcrypt.hash(password, salt);
-
-        // Create user
-        const user = await User.create({
-            name,
-            email,
-            password: hashedPassword,
-            type,
-            phone,
-            isdoctor: isdoctor || false
+        req.body.password = hashedPassword;
+        const newUser = new userModel(req.body);
+        await newUser.save();
+        res.status(201).send({ message: "Registered Successfully", success: true });
+    } catch (error) {
+        console.log(error);
+        res.status(500).send({
+            success: false,
+            message: `Register Controller error: ${error.message}`,
         });
-
-        // If user is a doctor, create a Doctor profile
-        if (type === 'doctor') {
-            await Doctor.create({
-                userID: user._id,
-                fullname: name,
-                email: email,
-                phone: phone,
-                specialization: specialization || 'General',
-                status: 'pending' // Admin needs to approve
-            });
-        }
-
-        if (user) {
-            res.status(201).json({
-                _id: user._id,
-                name: user.name,
-                email: user.email,
-                type: user.type,
-                token: generateToken(user._id)
-            });
-        } else {
-            res.status(400).json({ message: 'Invalid user data' });
-        }
-    } catch (error) {
-        console.error('Registration Error:', error);
-        res.status(500).json({ message: 'Server error during registration' });
     }
 };
 
-const loginUser = async (req, res) => {
+const loginController = async (req, res) => {
     try {
-        const { email, password } = req.body;
-
-        // Find user by email
-        const user = await User.findOne({ email });
-
-        // Handle plain-text seeded passwords from our demo script OR bcrypt passwords
-        let isMatch = false;
-        if (user) {
-            if (password === user.password) {
-                isMatch = true; // Matched plain-text seed
-            } else {
-                isMatch = await bcrypt.compare(password, user.password);
-            }
+        const user = await userModel.findOne({ email: req.body.email });
+        if (!user) {
+            return res
+                .status(200)
+                .send({ message: "User not found", success: false });
+        }
+        const isMatch = await bcrypt.compare(req.body.password, user.password);
+        if (!isMatch) {
+            return res
+                .status(200)
+                .send({ message: "Invalid email or password", success: false });
         }
 
-        let doctorStatus = null;
-        if (user && user.type === 'doctor') {
-            const doc = await Doctor.findOne({ userID: user._id });
-            if (doc) doctorStatus = doc.status;
-        }
-
-        if (user && isMatch) {
-            if (user.type === 'doctor' && doctorStatus !== 'approved') {
-                return res.status(403).json({ message: `Your doctor account is currently ${doctorStatus || 'pending'}. Please wait for admin approval.` });
-            }
-
-            res.json({
-                _id: user._id,
-                name: user.name,
-                email: user.email,
-                type: user.type,
-                token: generateToken(user._id)
+        // Check if user is blocked
+        if (user.status === "blocked") {
+            return res.status(200).send({
+                message: "Your account has been blocked by admin. Please contact support.",
+                success: false,
             });
-        } else {
-            res.status(401).json({ message: 'Invalid email or password' });
         }
+
+        const token = jwt.sign({ id: user._id }, process.env.JWT_SECRET, {
+            expiresIn: "1d",
+        });
+        res
+            .status(200)
+            .send({ message: "Login Success", success: true, token });
     } catch (error) {
-        console.error('Login Error:', error);
-        res.status(500).json({ message: 'Server error during login' });
+        console.log(error);
+        res.status(500).send({ message: `Error in Login Controller ${error.message}` });
     }
 };
 
-module.exports = { registerUser, loginUser };
+const authController = async (req, res) => {
+    try {
+        const user = await userModel.findById({ _id: req.body.userId });
+        user.password = undefined;
+        if (!user) {
+            return res.status(200).send({
+                message: "User not found",
+                success: false,
+            });
+        } else if (user.status === "blocked") {
+            return res.status(200).send({
+                message: "Your account is blocked",
+                success: false,
+            });
+        } else {
+            // Include profile image if user is a doctor
+            const userData = {
+                ...user.toObject(),
+                profileImage: null
+            };
+
+            if (user.isDoctor) {
+                // Try finding by string ID and by ObjectID to be safe
+                let doctor = await doctorModel.findOne({ userId: req.body.userId });
+
+                if (!doctor) {
+                    doctor = await doctorModel.findOne({ userId: user._id });
+                }
+
+                if (doctor) {
+                    userData.profileImage = doctor.profileImage;
+                }
+            }
+
+            res.status(200).send({
+                success: true,
+                data: userData,
+            });
+        }
+    } catch (error) {
+        console.log(error);
+        res.status(500).send({
+            message: "Auth error",
+            success: false,
+            error,
+        });
+    }
+};
+
+
+const applyDoctorController = async (req, res) => {
+    try {
+        console.log("Apply Doctor Request Body:", req.body);
+        const newDoctor = new doctorModel({ ...req.body, status: "pending" });
+        await newDoctor.save();
+        const adminUser = await userModel.findOne({ isAdmin: true });
+        const notification = adminUser.notification;
+        notification.push({
+            type: "apply-doctor-request",
+            message: `${newDoctor.firstName} ${newDoctor.lastName} Has Applied For A Doctor Account`,
+            data: {
+                doctorId: newDoctor._id,
+                name: newDoctor.firstName + " " + newDoctor.lastName,
+                onClickPath: "/admin/doctors",
+            },
+        });
+        await userModel.findByIdAndUpdate(adminUser._id, { notification });
+        res.status(201).send({
+            success: true,
+            message: "Doctor Account Applied Successfully",
+        });
+    } catch (error) {
+        console.log("Apply Doctor Controller Error:", error);
+        res.status(500).send({
+            success: false,
+            error: error.message,
+            message: "Error While Applying For Doctor",
+        });
+    }
+};
+
+const getAllNotificationController = async (req, res) => {
+    try {
+        const user = await userModel.findOne({ _id: req.body.userId });
+        const seennotification = user.seennotification;
+        const notification = user.notification;
+        seennotification.push(...notification);
+        user.notification = [];
+        user.seennotification = seennotification;
+        const updatedUser = await user.save();
+        updatedUser.password = undefined;
+        res.status(200).send({
+            success: true,
+            message: "all notification marked as read",
+            data: updatedUser,
+        });
+    } catch (error) {
+        console.log(error);
+        res.status(500).send({
+            message: "Error in notification",
+            success: false,
+            error,
+        });
+    }
+};
+
+const deleteAllNotificationController = async (req, res) => {
+    try {
+        const user = await userModel.findOne({ _id: req.body.userId });
+        user.notification = [];
+        user.seennotification = [];
+        const updatedUser = await user.save();
+        updatedUser.password = undefined;
+        res.status(200).send({
+            success: true,
+            message: "Notifications Deleted Successfully",
+            data: updatedUser,
+        });
+    } catch (error) {
+        console.log(error);
+        res.status(500).send({
+            success: false,
+            message: "unable to delete all notifications",
+            error,
+        });
+    }
+};
+
+module.exports = {
+    loginController,
+    registerController,
+    authController,
+    applyDoctorController,
+    getAllNotificationController,
+    deleteAllNotificationController,
+};

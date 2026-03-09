@@ -1,32 +1,27 @@
-const jwt = require('jsonwebtoken');
-const { PrismaClient } = require('@prisma/client');
-const prisma = new PrismaClient();
+const jwt = require("jsonwebtoken");
 
-const protect = async (req, res, next) => {
-  let token;
-
-  if (req.headers.authorization && req.headers.authorization.startsWith('Bearer')) {
+module.exports = async (req, res, next) => {
     try {
-      token = req.headers.authorization.split(' ')[1];
-
-      const decoded = jwt.verify(token, process.env.JWT_SECRET);
-
-      req.user = await prisma.user.findUnique({
-        where: { id: decoded.id },
-        select: { id: true, name: true, email: true, role: true },
-      });
-
-      next();
+        const token = req.headers["authorization"].split(" ")[1];
+        jwt.verify(token, process.env.JWT_SECRET, (err, decode) => {
+            if (err) {
+                return res.status(200).send({
+                    message: "Auth failed",
+                    success: false,
+                });
+            } else {
+                req.userId = decode.id;
+                // Ensure req.body exists for legacy controller support
+                if (!req.body) req.body = {};
+                req.body.userId = decode.id;
+                next();
+            }
+        });
     } catch (error) {
-      console.error(error);
-      res.status(401).json({ message: 'Not authorized, token failed' });
+        console.log(error);
+        res.status(401).send({
+            message: "Auth failed",
+            success: false,
+        });
     }
-  }
-
-  if (!token) {
-    res.status(401).json({ message: 'Not authorized, no token' });
-  }
 };
-
-module.exports = { protect };
-

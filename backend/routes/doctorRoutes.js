@@ -1,11 +1,19 @@
-const express = require('express');
+const express = require("express");
+const {
+    getDoctorInfoController,
+    updateProfileController,
+    getDoctorByIdController,
+} = require("../controllers/doctorC");
+const authMiddleWare = require("../middlewares/authMiddleWare");
 const router = express.Router();
-const { getDoctorAppointments, getApprovedDoctors } = require('../controllers/doctorC');
 
-// Example protected route for doctor
-router.get('/appointments', getDoctorAppointments);
+//POST SINGLE DOC INFO
+router.post("/getDoctorInfo", authMiddleWare, getDoctorInfoController);
 
-// Public/User route to fetch approved doctors
-router.get('/approved', getApprovedDoctors);
+//POST UPDATE PROFILE
+router.post("/updateProfile", authMiddleWare, updateProfileController);
+
+//POST GET SINGLE DOC INFO
+router.post("/getDoctorById", authMiddleWare, getDoctorByIdController);
 
 module.exports = router;
